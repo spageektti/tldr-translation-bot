@@ -24,6 +24,7 @@ SOFTWARE.
 import discord
 import os
 import subprocess
+import pickle
 from dotenv import load_dotenv
 from googletrans import Translator
 
@@ -34,6 +35,10 @@ if not os.path.exists("tldr"):
     subprocess.run(["git", "clone", "https://github.com/tldr-pages/tldr.git"])
 else:
     subprocess.run(["cd", "tldr", "&&", "git", "pull"], shell=True)
+
+if not os.path.exists('already_translated.pickle'):
+    with open('already_translated.pickle', 'wb') as file:
+        pickle.dump([], file)
 
 languages = ['ar', 'bn', 'bs', 'ca', 'cs', 'da', 'de', 'es', 'fa', 'fi', 'fr', 'hi', 'id', 'it', 'ja', 'ko', 'lo', 'ml', 'ne', 'nl', 'no', 'pl', 'pt_BR', 'pt_PT', 'ro', 'ru', 'sh', 'sr', 'sv', 'ta', 'th', 'tr', 'uk', 'uz', 'zh', 'zh_TW']
 guide = [
@@ -64,6 +69,20 @@ Go back to the repository [tldr-pages/tldr](https://github.com/tldr-pages/tldr/)
 Congratulations! You have submitted your Pull Request! Thank you for helping us create TLDR Pages!
 ''',
 ]
+
+def check_if_already_translated(file_to_translate):
+    with open('already_translated.pickle', 'rb') as file:
+        already_translated = pickle.load(file)
+        return file_to_translate in already_translated
+
+def save_translation(translated_file):
+    with open('already_translated.pickle', 'rb') as file:
+        already_translated = pickle.load(file)
+    
+    already_translated.append(translated_file)
+    
+    with open('already_translated.pickle', 'wb') as file:
+        pickle.dump(already_translated, file)
 
 @bot.event
 async def on_ready():
@@ -99,12 +118,13 @@ async def translate_folder(ctx: discord.ApplicationContext, language:discord.Opt
     translator = Translator()
 
     for file in pages_files:
-        if file not in pages_lang_files:
+        if file not in pages_lang_files and not check_if_already_translated(pages_lang_folder + file):
             embed = discord.Embed(
             title="Translating Pages",
             description="We will send you the first not translated file in your selected language and folder. We will send you this line-by-line. You have to send us back every line translated into selected lang.",
             color=discord.Colour.blurple(),
             )
+            embed.add_field(name="Controls", value="Send `.` to copy the original line for translation. Send `exit` to stop the translation (note: it does not save your progress).", inline=False)
             embed.add_field(name="Selected File:", value=file)
             embed.add_field(name="Selected Lang:", value=f"{language}", inline=True)
             embed.set_footer(text="created by spageektti", icon_url="https://github.com/spageektti.png")
@@ -135,6 +155,9 @@ async def translate_folder(ctx: discord.ApplicationContext, language:discord.Opt
                         translated_line = await bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.type == discord.ChannelType.private)
                         if(translated_line.content == "."):
                             translated_content.append(line)
+                        elif(translated_line.content == "exit"):
+                            await ctx.send(":name_badge: Exited.")
+                            return
                         else:
                             translated_content.append(translated_line.content + "\n")
                     else:
@@ -152,6 +175,9 @@ async def translate_folder(ctx: discord.ApplicationContext, language:discord.Opt
             embed.description = "Now you should upload this translation to GitHub and open a pull request.\nWould you like me to send you step-by-step instructions?\n(answer with `yes`/`no`)"
             embed.color = discord.Colour.green()
             await ctx.send(embed=embed)
+
+            if not test:
+                save_translation(pages_lang_folder + file)
 
             response = await bot.wait_for('message', check=lambda message: message.author == ctx.author and message.channel.type == discord.ChannelType.private)
             if(response.content == "yes"):
